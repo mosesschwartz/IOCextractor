@@ -9,55 +9,18 @@
 import re
 import sys
 
-from Tkinter import *
-from tkFileDialog import askopenfilename, asksaveasfilename, askdirectory
-from distutils.version import LooseVersion
 
-try:
-    import cybox
-    from cybox import helper as cybox_helper
-    from cybox.core import Observables, Observable
-    from cybox.objects.uri_object import URI
-    import cybox.utils
+import cybox
+from cybox import helper as cybox_helper
+from cybox.core import Observables, Observable
+from cybox.objects.uri_object import URI
+import cybox.utils
+import stix
+from stix.core import STIXPackage, STIXHeader
+from cybox.common import Hash
+from cybox.objects.file_object import File
 
-    if hasattr(cybox, "__version__"):
-        if (LooseVersion(cybox.__version__) >= LooseVersion('2.0.1.0')):
-            python_cybox_available = True
-        else:
-            raise ImportError("python-cybox must be v2.0.1.0 or greater. Found v%s" % cybox.__version__)
-    else:
-        raise ImportError("python-cybox must be v2.0.1.0 or greater")
-
-except Exception as e:
-    print "ERROR: Could not load python-cybox. Will not be able to export IOCs in CybOX 2.0 format.\nException:[%s]" % (str(e))
-    python_cybox_available = False
-
-try:
-    import stix
-    from stix.core import STIXPackage, STIXHeader
-    from cybox.common import Hash
-    from cybox.objects.file_object import File
-
-    if hasattr(stix, "__version__"):
-        if (LooseVersion(stix.__version__) >= LooseVersion('1.0.1')):
-            python_stix_available = True
-        else:
-            raise ImportError("python-stix must be v1.0.1 or greater. Found v%s" % stix.__version__)
-    else:
-        raise ImportError("python-stix must be v1.0.1 or greater")
-
-except Exception as e:
-    print "ERROR: Could not load python-stix. Will not be able to export IOCs in STIX 1.0.1 format.\nException:[%s]" % (str(e))
-    python_stix_available = False
-
-try:
-    from ioc_writer import ioc_api, ioc_common
-    ioc_writer_available = True
-except ImportError, e:
-    print 'ERROR: Could not load ioc_writer.  Will not be able to export IOCs in OpenIOC 1.1 format.'
-    ioc_writer_available = False
-
-tags = ['md5', 'sha1', 'ipv4', 'url', 'domain', 'email']
+from ioc_writer import ioc_api, ioc_common
 
 reMD5 = r"([A-F]|[0-9]){32}"
 reSHA1 = r"([A-F]|[0-9]){40}"
@@ -69,221 +32,78 @@ reEmail = r"\b[A-Za-z0-9._%+-]+(@|\[@\])[A-Za-z0-9.-]+(\.|\[\.\])(XN--CLCHC0EA0B
 
 def dotToNum(ip): return int(''.join(["%02x"%int(i) for i in ip.split('.')]),16)
 
-def tag_initial():
-    lines = text.get(1.0, 'end').split('\n')
+def extract_iocs(text):
+    iocs = {'md5' : [],
+            'sha1' : [],
+            'sha256' : [],
+            'ipv4' : [],
+            'url' : [],
+            'domain' : [],
+            'email' : []}
 
     #md5
-    text.tag_configure('md5', background='#FE6AA8')
-    linenumber = 1
-    for line in lines:
-        for m in re.finditer(reMD5, line, re.IGNORECASE):
-            text.tag_add('md5',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-        linenumber += 1
+    for m in re.finditer(reMD5, text, re.IGNORECASE):
+        iocs['md5'].append(m.string[m.start():m.end()].upper())
 
     #sha1
-    text.tag_configure('sha1', background='#A8FE6A')
-    linenumber = 1
-    for line in lines:
-        for m in re.finditer(reSHA1, line, re.IGNORECASE):
-            text.tag_add('sha1',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-        linenumber += 1
+    for m in re.finditer(reSHA1, text, re.IGNORECASE):
+        iocs['sha1'].append(m.string[m.start():m.end()].upper())
 
     #sha256
-    text.tag_configure('sha256', background='#c06afe')
-    linenumber = 1
-    for line in lines:
-        for m in re.finditer(reSHA256, line, re.IGNORECASE):
-            text.tag_add('sha256',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-        linenumber += 1
+    for m in re.finditer(reSHA256, text, re.IGNORECASE):
+        iocs['sha256'].append(m.string[m.start():m.end()].upper())
 
     #ipv4
-    text.tag_configure('ipv4', background='#6CB23E')
-    linenumber = 1
-    for line in lines:
-        for m in re.finditer(reIPv4, line, re.IGNORECASE):
-            result = text.get(str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-            result = result.replace('[','').replace(']','') #remove brackets
-            #reject private, link-local, and loopback IPs
-            if result.find('10.') != 0 and \
-               result.find('192.168') != 0 and \
-               result.find('127') != 0:
-                if (dotToNum(result) < dotToNum('172.16.0.0') or \
-                   dotToNum(result) > dotToNum('172.31.255.255')) and \
-                   (dotToNum(result) < dotToNum('169.254.1.0') or \
-                   dotToNum(result) > dotToNum('169.254.254.255')):
-                    text.tag_add('ipv4',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-        linenumber += 1
+    for m in re.finditer(reIPv4, text, re.IGNORECASE):
+        result = m.string[m.start():m.end()]
+        result = result.replace('[','').replace(']','') #remove brackets
+        #reject private, link-local, and loopback IPs
+        if result.find('10.') != 0 and \
+           result.find('192.168') != 0 and \
+           result.find('127') != 0:
+            if (dotToNum(result) < dotToNum('172.16.0.0') or \
+                dotToNum(result) > dotToNum('172.31.255.255')) and \
+               (dotToNum(result) < dotToNum('169.254.1.0') or \
+                dotToNum(result) > dotToNum('169.254.254.255')):
+                iocs['ipv4'].append(result)
 
     #url
-    text.tag_configure('url', background='#378A20')
-    linenumber = 1
-    for line in lines:
-        for m in re.finditer(reURL, line, re.IGNORECASE):
-            result = text.get(str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-            end = m.end()
-            #drop trailing punctuation
-            while (u'.,\u201d"\'\u2019').find(result[len(result)-1:len(result)]) != -1:
-                result = result[:len(result)-1]
-                end -= 1
-            text.tag_add('url',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(end))
-        linenumber += 1
+    for m in re.finditer(reURL, text, re.IGNORECASE):
+        result = m.string[m.start():m.end()]
+        #drop trailing punctuation
+        while (u'.,\u201d"\'\u2019').find(result[-1]) != -1:
+            result = result[:-1]
+        iocs['url'].append(result)
 
     #domain
-    text.tag_configure('domain', background='#5DC5D1')
-    linenumber = 1
-    for line in lines:
-        for m in re.finditer(reDomain, line, re.IGNORECASE):
-            #reject if preceding character is @ or following character is /
-            if not text.get(str(linenumber) + '.' + str(m.start()-1), str(linenumber) + '.' + str(m.start())) == '@':
-                if not text.get(str(linenumber) + '.' + str(m.end()), str(linenumber) + '.' + str(m.end()+1)) == '/':
-                    text.tag_add('domain',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-        linenumber += 1
+    for m in re.finditer(reDomain, text, re.IGNORECASE):
+        #reject if preceding character is @ or following character is /
+        if text[min(m.start()-1, 0)] != '@':
+            if text[min(len(m.string)-1, m.end()+1)] != '/':
+                iocs['domain'].append(m.string[m.start():m.end()])
 
     #email
-    text.tag_configure('email', background='#0224F2')
-    linenumber = 1
-    for line in lines:
-        for m in re.finditer(reEmail, line, re.IGNORECASE):
-            #reject verizon emails
-            result = text.get(str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-            if result.find('@verizon.com') == -1 and \
-               result.find('@verizonbusiness.com') == -1 and \
-               result.find('@one.verizon.com') == -1 and \
-               result.find('@jp.verizonbusiness.com') == -1:
-                text.tag_add('email',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-        linenumber += 1
+    for m in re.finditer(reEmail, text, re.IGNORECASE):
+        iocs['email'].append(m.string[m.start():m.end()])
 
-def askopen(filename = ''):
-    if filename == '':
-        filename = askopenfilename(title="Select plain-text file", filetypes=[("txt file",".txt"),("All files",".*")])
-    if filename != '':
-        with open(filename, 'rb') as f: #read as binary
-            doc = f.read()
-            doc = doc.decode('utf_8', 'ignore') #drop any non-ascii bytes
+    # Remove duplicates
+    for ioc_type, ioc_list in iocs.items():
+        iocs[ioc_type] = list(set(ioc_list))
+    return iocs
 
-            #if a carriage return is orphaned, replace it with a new line
-            doc = list(doc)
-            i = 0
-            while (i < len(doc) - 1):
-                if ord(doc[i]) == 13: #it's a carriage return
-                    if ord(doc[i + 1]) != 10: #it's not followed by a new line
-                        doc[i] = chr(10) #replace it with a new line
-                i += 1
-            if ord(doc[len(doc)-1]) == 13: #end
-                doc[len(doc)-1] = chr(10)
 
-            #drop carriage returns
-            i = 0
-            while (i < len(doc) - 1):
-                if ord(doc[i]) == 13: #it's a carriage return
-                    doc.pop(i)
-                else:
-                    i += 1
+def export_csv(iocs):
+    output = 'IOC,Type\n'
+    for ioc_type, ioc_list in iocs.items():
+        for ioc in ioc_list:
+            output += '"' + ioc + '",' + ioc_type + '\n'
+    return output
 
-            doc = ''.join(doc)
-
-            text.delete('1.0',END)
-            text.insert('1.0', doc)
-            tag_initial()
-            root.title(filename + ' - IOCextractor')
-
-def clear_tag(holder = 0):
-    if len(text.tag_ranges("sel")) != 0: #selection is not empty
-        #untag all occurrences of selected string
-        key = text.get(text.tag_ranges("sel")[0], text.tag_ranges("sel")[1])
-        lines = text.get(1.0, 'end').split('\n')
-        linenumber = 1
-
-        for line in lines:
-            for m in re.finditer(re.escape(key), line, re.IGNORECASE):
-                for t in tags:
-                    text.tag_remove(t, str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-            linenumber += 1
-
-        for t in tags: #necessary backup in case the regex fails to match
-            text.tag_remove(t, text.tag_ranges("sel")[0], text.tag_ranges("sel")[1])
-
-def tag_new(tag):
-    if len(text.tag_ranges("sel")) != 0: #selection is not empty
-        #remove any newline characters from the selection
-        if '\n' in text.get(text.tag_ranges("sel")[0], text.tag_ranges("sel")[1]):
-            line_start = (str(text.tag_ranges("sel")[0]).split('.'))[1]
-            newline_index = text.get(text.tag_ranges("sel")[0], text.tag_ranges("sel")[1]).index('\n')
-            del_line = str(text.tag_ranges("sel")[0]).split('.')[0]
-            del_position = str(int(line_start) + int(newline_index))
-            text.delete(del_line + '.' + del_position)
-
-        #tag all occurences of selected string
-        key = text.get(text.tag_ranges("sel")[0], text.tag_ranges("sel")[1])
-        lines = text.get(1.0, 'end').split('\n')
-        linenumber = 1
-        for line in lines:
-            for m in re.finditer(re.escape(key), line, re.IGNORECASE):
-                for t in tags:
-                    text.tag_add(tag, str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
-            linenumber += 1
-
-def export_console():
-    #need better way to iterate through highlights and remove brackets
-    for t in tags:
-        indicators = []
-        print(t + ':')
-        myhighlights = text.tag_ranges(t)
-        mystart = 0
-        for h in myhighlights:
-            if mystart == 0:
-                mystart = h
-            else:
-                mystop = h
-                if t == 'md5' or t == 'sha1' or t == 'sha256': #make all hashes uppercase
-                    if not text.get(mystart,mystop).upper() in indicators:
-                        indicators.append(text.get(mystart,mystop).upper())
-                else:
-                    if not text.get(mystart,mystop).replace('[.]','.').replace('[@]','@') in indicators:
-                        indicators.append(text.get(mystart,mystop).replace('[.]','.').replace('[@]','@'))
-                mystart = 0
-        for i in indicators:
-            print(i)
-        print()
-
-def export_csv():
-    filename = asksaveasfilename(title="Save As", filetypes=[("csv file",".csv"),("All files",".*")])
-    if filename != '':
-        output = 'IOC,Type\n'
-        #need better way to iterate through highlights and remove brackets
-        for t in tags:
-            indicators = []
-            myhighlights = text.tag_ranges(t)
-            mystart = 0
-            for h in myhighlights:
-                if mystart == 0:
-                    mystart = h
-                else:
-                    mystop = h
-                    if t == 'md5' or t == 'sha1' or t == '256': #make all hashes uppercase
-                        if not text.get(mystart,mystop).upper() in indicators:
-                            indicators.append(text.get(mystart,mystop).upper())
-                    else:
-                        if not text.get(mystart,mystop).replace('[.]','.').replace('[@]','@') in indicators:
-                            indicators.append(text.get(mystart,mystop).replace('[.]','.').replace('[@]','@'))
-                    mystart = 0
-            for i in indicators:
-                if i.find(',') == -1: #no commas, print normally
-                    output += str(i) + ',' + t + '\n'
-                else: #internal comma, surround in double quotes
-                    output += '"' + str(i) + '",' + t + '\n'
-        if len(filename) - filename.find('.csv') != 4:
-            filename += '.csv' #add .csv extension if missing
-        with open(filename, 'w') as f:
-            f.write(output)
-
-def export_stix():
+def export_stix(iocs):
     """
     Export the tagged items in STIX format.
-    This prompts the user to determine which file they want the STIX saved
-    out too.
+    BROKE!
     """
-    filename = asksaveasfilename(title="Save As", filetypes=[("xml file",".xml"),("All files",".*")])
     observables_doc = None
 
     stix_package = STIXPackage()
@@ -291,143 +111,49 @@ def export_stix():
     stix_header.description = filename
     stix_package.stix_header = stix_header
 
-    if filename:
-        observables = []
-        for t in tags:
-            indicators = []
-            myhighlights = text.tag_ranges(t)
-            mystart = 0
-            for h in myhighlights:
-                if mystart == 0:
-                    mystart = h
-                else:
-                    mystop = h
-                    value = text.get(mystart,mystop).replace('[.]','.').replace('[@]','@')
 
-                    if t == 'md5':
-                        value = value.upper()
-                        if value not in indicators:
-                            observable = cybox_helper.create_file_hash_observable('', value)
-                            observables.append(observable)
-                            stix_package.add_observable(observable)
-                            indicators.append(value)
+    for ioc in iocs['md5']:
+        observable = cybox_helper.create_file_hash_observable('', value)
+        observables.append(observable)
+        stix_package.add_observable(observable)
+        indicators.append(value)
 
-                    elif t == 'ipv4':
-                        if not value in indicators:
-                            observable = cybox_helper.create_ipv4_observable(value)
-                            observables.append(observable)
-                            stix_package.add_observable(observable)
-                            indicators.append(value)
+    if t == 'ipv4':
+        if not value in indicators:
+            observable = cybox_helper.create_ipv4_observable(value)
+            observables.append(observable)
+            stix_package.add_observable(observable)
+            indicators.append(value)
 
-                    elif t == 'domain':
-                        if not value in indicators:
-                            observable = cybox_helper.create_domain_name_observable(value)
-                            observables.append(observable)
-                            stix_package.add_observable(observable)
-                            indicators.append(value)
+    elif t == 'domain':
+        if not value in indicators:
+            observable = cybox_helper.create_domain_name_observable(value)
+            observables.append(observable)
+            stix_package.add_observable(observable)
+            indicators.append(value)
 
-                    elif t == 'url':
-                        if not value in indicators:
-                            observable = cybox_helper.create_url_observable(value)
-                            observables.append(observable)
-                            stix_package.add_observable(observable)
-                            indicators.append(value)
+    elif t == 'url':
+        if not value in indicators:
+            observable = cybox_helper.create_url_observable(value)
+            observables.append(observable)
+            stix_package.add_observable(observable)
+            indicators.append(value)
 
-                    elif t == 'email':
-                        if not value in indicators:
-                            observable = cybox_helper.create_email_address_observable(value)
-                            observables.append(observable)
-                            stix_package.add_observable(observable)
-                            indicators.append(value)
+    elif t == 'email':
+        if not value in indicators:
+            observable = cybox_helper.create_email_address_observable(value)
+            observables.append(observable)
+            stix_package.add_observable(observable)
+            indicators.append(value)
 
-                    mystart = 0
-                # end if
-            # end for
-        # end for
-
-        if len(observables) > 0:
-
-
-            if not filename.endswith('.xml'):
-                filename = "%s.xml" % filename #add .xml extension if missing
-            # end if
-
-            with open(filename, "wb") as f:
-                stix_xml = stix_package.to_xml()
-                f.write(stix_xml)
-
+    if len(observables) > 0:
+        if not filename.endswith('.xml'):
+            filename = "%s.xml" % filename #add .xml extension if missing
         # end if
 
-def export_cybox():
-    """
-    Export the tagged items in CybOX format.
-    This prompts the user to determine which file they want the CybOX saved
-    out too.
-    """
-    filename = asksaveasfilename(title="Save As", filetypes=[("xml file",".xml"),("All files",".*")])
-    observables_doc = None
-
-    if filename:
-        observables = []
-        for t in tags:
-            indicators = []
-            myhighlights = text.tag_ranges(t)
-            mystart = 0
-            for h in myhighlights:
-                if mystart == 0:
-                    mystart = h
-                else:
-                    mystop = h
-                    value = text.get(mystart,mystop).replace('[.]','.').replace('[@]','@')
-
-                    if t == 'md5':
-                        value = value.upper()
-                        if value not in indicators:
-                            observable = cybox_helper.create_file_hash_observable('', value)
-                            observables.append(observable)
-                            indicators.append(value)
-
-                    elif t == 'ipv4':
-                        if not value in indicators:
-                            observable = cybox_helper.create_ipv4_observable(value)
-                            observables.append(observable)
-                            indicators.append(value)
-
-                    elif t == 'domain':
-                        if not value in indicators:
-                            observable = cybox_helper.create_domain_name_observable(value)
-                            observables.append(observable)
-                            indicators.append(value)
-
-                    elif t == 'url':
-                        if not value in indicators:
-                            observable = cybox_helper.create_url_observable(value)
-                            observables.append(observable)
-                            indicators.append(value)
-
-                    elif t == 'email':
-                        if not value in indicators:
-                            observable = cybox_helper.create_email_address_observable(value)
-                            observables.append(observable)
-                            indicators.append(value)
-
-                    mystart = 0
-                # end if
-            # end for
-        # end for
-
-        if len(observables) > 0:
-            NS = cybox.utils.Namespace("http://example.com/", "example")
-            cybox.utils.set_id_namespace(NS)
-            observables_doc = Observables(observables=observables)
-
-            if not filename.endswith('.xml'):
-                filename = "%s.xml" % filename #add .xml extension if missing
-            # end if
-
-            with open(filename, "wb") as f:
-                cybox_xml = observables_doc.to_xml()
-                f.write(cybox_xml)
+        with open(filename, "wb") as f:
+            stix_xml = stix_package.to_xml()
+            f.write(stix_xml)
 
         # end if
 
@@ -440,6 +166,7 @@ def export_openioc():
     Email tags default to 'Email/From' address, implying that the email address
     found is the source address of an email.  This may not be accurate in all
     cases.
+    BROKE!
     '''
     def make_network_uri(uri, condition='contains', negate=False, preserve_case = False):
         document = 'Network'
@@ -509,75 +236,20 @@ def export_openioc():
         ioc_obj.write_ioc_to_file(output_directory)
     return True
 
-root = Tk()
-root.title('IOCextractor')
 
-topframe = Frame(root)
-topframe.pack()
-bottomframe = Frame(root)
-bottomframe.pack(side=BOTTOM)
 
-openb = Button(topframe, text = "Open File", command = askopen)
-openb.pack(side=LEFT)
+test = '''
+f4db7003155a381d1b4e1568fc852bc4
+POODLES
+123.123.123.123
+123[.]123[.]123[.]123.123.123.123
+extract_iocs(open('TestDocument.txt').read())
+www.google.com
+google.com
+http://wwww.google.com
+'''
 
-retag = Button(topframe, text = "ReTag", command = tag_initial)
-retag.pack({"side": "left"})
-
-clear = Button(topframe, text = "Clear", command = clear_tag)
-clear.pack({"side": "left"})
-
-md5 = Button(topframe, text = "MD5", command = lambda: tag_new('md5'), bg = "#FE6AA8")
-md5.pack({"side": "left"})
-
-sha1 = Button(topframe, text = "SHA1", command = lambda: tag_new('sha1'), bg = "#a8fe6a")
-sha1.pack({"side": "left"})
-
-sha256 = Button(topframe, text = "SHA256", command = lambda: tag_new('sha256'), bg = "#c06afe")
-sha256.pack({"side": "left"})
-
-ipv4 = Button(topframe, text = "IPV4", command = lambda: tag_new('ipv4'), bg = "#6CB23E")
-ipv4.pack({"side": "left"})
-
-url = Button(topframe, text = "URL", command = lambda: tag_new('url'), bg = "#378A20")
-url.pack({"side": "left"})
-
-domain = Button(topframe, text = "Domain", command = lambda: tag_new('domain'), bg = "#5DC5D1")
-domain.pack({"side": "left"})
-
-email = Button(topframe, text = "Email", command = lambda: tag_new('email'), bg = "#0224F2")
-email.pack({"side": "left"})
-
-export_console = Button(topframe, text = "Export Console", command = export_console)
-export_console.pack({"side": "left"})
-
-export_csv = Button(topframe, text = "Export CSV", command = export_csv)
-export_csv.pack({"side": "left"})
-
-if python_stix_available:
-    export_stix = Button(topframe, text = "Export STIX", command = export_stix)
-    export_stix.pack({"side": "left"})
-
-if python_cybox_available:
-    export_cybox = Button(topframe, text = "Export CybOX", command = export_cybox)
-    export_cybox.pack({"side": "left"})
-
-if ioc_writer_available:
-    export_openioc = Button(topframe, text = "Export OpenIOC 1.1", command = export_openioc)
-    export_openioc.pack({"side" : "left"})
-
-#build main text area
-text = Text(bottomframe, width=120, height=50)
-text.pack({"side": "left"})
-scrollbar = Scrollbar(bottomframe)
-scrollbar.pack({"side": "left", "fill" : "y"})
-scrollbar.config(command = text.yview)
-text.config(yscrollcommand = scrollbar.set)
-
-text.bind('<Button-3>', clear_tag) #right-click selection to untag (Windows, Linux)
-text.bind('<Command-Button-1>', clear_tag) #command-click selection to untag (Mac)
-
-#insert doc if received as commandline argument
-if len(sys.argv) == 2:
-    askopen(sys.argv[1])
-
-root.mainloop()
+if __name__ == '__main__':
+    iocs = extract_iocs(test)
+    print iocs
+    print export_csv(iocs)
