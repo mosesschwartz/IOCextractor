@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
 
 #This script helps extract indicators of compromise (IOCs) from a text file.
 #A user can add or remove tagged indicators then export the remaining tags.
@@ -19,7 +19,7 @@ try:
     from cybox.core import Observables, Observable
     from cybox.objects.uri_object import URI
     import cybox.utils
-    
+
     if hasattr(cybox, "__version__"):
         if (LooseVersion(cybox.__version__) >= LooseVersion('2.0.1.0')):
             python_cybox_available = True
@@ -27,11 +27,29 @@ try:
             raise ImportError("python-cybox must be v2.0.1.0 or greater. Found v%s" % cybox.__version__)
     else:
         raise ImportError("python-cybox must be v2.0.1.0 or greater")
-    
+
 except Exception as e:
     print "ERROR: Could not load python-cybox. Will not be able to export IOCs in CybOX 2.0 format.\nException:[%s]" % (str(e))
     python_cybox_available = False
-    
+
+try:
+    import stix
+    from stix.core import STIXPackage, STIXHeader
+    from cybox.common import Hash
+    from cybox.objects.file_object import File
+
+    if hasattr(stix, "__version__"):
+        if (LooseVersion(stix.__version__) >= LooseVersion('1.0.1')):
+            python_stix_available = True
+        else:
+            raise ImportError("python-stix must be v1.0.1 or greater. Found v%s" % stix.__version__)
+    else:
+        raise ImportError("python-stix must be v1.0.1 or greater")
+
+except Exception as e:
+    print "ERROR: Could not load python-stix. Will not be able to export IOCs in STIX 1.0.1 format.\nException:[%s]" % (str(e))
+    python_stix_available = False
+
 try:
     from ioc_writer import ioc_api, ioc_common
     ioc_writer_available = True
@@ -39,9 +57,11 @@ except ImportError, e:
     print 'ERROR: Could not load ioc_writer.  Will not be able to export IOCs in OpenIOC 1.1 format.'
     ioc_writer_available = False
 
-tags = ['md5', 'ipv4', 'url', 'domain', 'email']
+tags = ['md5', 'sha1', 'ipv4', 'url', 'domain', 'email']
 
 reMD5 = r"([A-F]|[0-9]){32}"
+reSHA1 = r"([A-F]|[0-9]){40}"
+reSHA256 = r"([A-F]|[0-9]){64}"
 reIPv4 = r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|\[\.\])){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
 reURL = r"[A-Z0-9\-\.\[\]]+(\.|\[\.\])(XN--CLCHC0EA0B2G2A9GCD|XN--HGBK6AJ7F53BBA|XN--HLCJ6AYA9ESC7A|XN--11B5BS3A9AJ6G|XN--MGBERP4A5D4AR|XN--XKC2DL3A5EE0H|XN--80AKHBYKNJ4F|XN--XKC2AL3HYE2A|XN--LGBBAT1AD8J|XN--MGBC0A9AZCG|XN--9T4B11YI5A|XN--MGBAAM7A8H|XN--MGBAYH7GPA|XN--MGBBH1A71E|XN--FPCRJ9C3D|XN--FZC2C9E2C|XN--YFRO4I67O|XN--YGBI2AMMX|XN--3E0B707E|XN--JXALPDLP|XN--KGBECHTV|XN--OGBPF8FL|XN--0ZWM56D|XN--45BRJ9C|XN--80AO21A|XN--DEBA0AD|XN--G6W251D|XN--GECRJ9C|XN--H2BRJ9C|XN--J6W193G|XN--KPRW13D|XN--KPRY57D|XN--PGBS0DH|XN--S9BRJ9C|XN--90A3AC|XN--FIQS8S|XN--FIQZ9S|XN--O3CW4H|XN--WGBH1C|XN--WGBL6A|XN--ZCKZAH|XN--P1AI|MUSEUM|TRAVEL|AERO|ARPA|ASIA|COOP|INFO|JOBS|MOBI|NAME|BIZ|CAT|COM|EDU|GOV|INT|MIL|NET|ORG|PRO|TEL|XXX|AC|AD|AE|AF|AG|AI|AL|AM|AN|AO|AQ|AR|AS|AT|AU|AW|AX|AZ|BA|BB|BD|BE|BF|BG|BH|BI|BJ|BM|BN|BO|BR|BS|BT|BV|BW|BY|BZ|CA|CC|CD|CF|CG|CH|CI|CK|CL|CM|CN|CO|CR|CU|CV|CW|CX|CY|CZ|DE|DJ|DK|DM|DO|DZ|EC|EE|EG|ER|ES|ET|EU|FI|FJ|FK|FM|FO|FR|GA|GB|GD|GE|GF|GG|GH|GI|GL|GM|GN|GP|GQ|GR|GS|GT|GU|GW|GY|HK|HM|HN|HR|HT|HU|ID|IE|IL|IM|IN|IO|IQ|IR|IS|IT|JE|JM|JO|JP|KE|KG|KH|KI|KM|KN|KP|KR|KW|KY|KZ|LA|LB|LC|LI|LK|LR|LS|LT|LU|LV|LY|MA|MC|MD|ME|MG|MH|MK|ML|MM|MN|MO|MP|MQ|MR|MS|MT|MU|MV|MW|MX|MY|MZ|NA|NC|NE|NF|NG|NI|NL|NO|NP|NR|NU|NZ|OM|PA|PE|PF|PG|PH|PK|PL|PM|PN|PR|PS|PT|PW|PY|QA|RE|RO|RS|RU|RW|SA|SB|SC|SD|SE|SG|SH|SI|SJ|SK|SL|SM|SN|SO|SR|ST|SU|SV|SX|SY|SZ|TC|TD|TF|TG|TH|TJ|TK|TL|TM|TN|TO|TP|TR|TT|TV|TW|TZ|UA|UG|UK|US|UY|UZ|VA|VC|VE|VG|VI|VN|VU|WF|WS|YE|YT|ZA|ZM|ZW)(/\S+)"
 reDomain = r"[A-Z0-9\-\.\[\]]+(\.|\[\.\])(XN--CLCHC0EA0B2G2A9GCD|XN--HGBK6AJ7F53BBA|XN--HLCJ6AYA9ESC7A|XN--11B5BS3A9AJ6G|XN--MGBERP4A5D4AR|XN--XKC2DL3A5EE0H|XN--80AKHBYKNJ4F|XN--XKC2AL3HYE2A|XN--LGBBAT1AD8J|XN--MGBC0A9AZCG|XN--9T4B11YI5A|XN--MGBAAM7A8H|XN--MGBAYH7GPA|XN--MGBBH1A71E|XN--FPCRJ9C3D|XN--FZC2C9E2C|XN--YFRO4I67O|XN--YGBI2AMMX|XN--3E0B707E|XN--JXALPDLP|XN--KGBECHTV|XN--OGBPF8FL|XN--0ZWM56D|XN--45BRJ9C|XN--80AO21A|XN--DEBA0AD|XN--G6W251D|XN--GECRJ9C|XN--H2BRJ9C|XN--J6W193G|XN--KPRW13D|XN--KPRY57D|XN--PGBS0DH|XN--S9BRJ9C|XN--90A3AC|XN--FIQS8S|XN--FIQZ9S|XN--O3CW4H|XN--WGBH1C|XN--WGBL6A|XN--ZCKZAH|XN--P1AI|MUSEUM|TRAVEL|AERO|ARPA|ASIA|COOP|INFO|JOBS|MOBI|NAME|BIZ|CAT|COM|EDU|GOV|INT|MIL|NET|ORG|PRO|TEL|XXX|AC|AD|AE|AF|AG|AI|AL|AM|AN|AO|AQ|AR|AS|AT|AU|AW|AX|AZ|BA|BB|BD|BE|BF|BG|BH|BI|BJ|BM|BN|BO|BR|BS|BT|BV|BW|BY|BZ|CA|CC|CD|CF|CG|CH|CI|CK|CL|CM|CN|CO|CR|CU|CV|CW|CX|CY|CZ|DE|DJ|DK|DM|DO|DZ|EC|EE|EG|ER|ES|ET|EU|FI|FJ|FK|FM|FO|FR|GA|GB|GD|GE|GF|GG|GH|GI|GL|GM|GN|GP|GQ|GR|GS|GT|GU|GW|GY|HK|HM|HN|HR|HT|HU|ID|IE|IL|IM|IN|IO|IQ|IR|IS|IT|JE|JM|JO|JP|KE|KG|KH|KI|KM|KN|KP|KR|KW|KY|KZ|LA|LB|LC|LI|LK|LR|LS|LT|LU|LV|LY|MA|MC|MD|ME|MG|MH|MK|ML|MM|MN|MO|MP|MQ|MR|MS|MT|MU|MV|MW|MX|MY|MZ|NA|NC|NE|NF|NG|NI|NL|NO|NP|NR|NU|NZ|OM|PA|PE|PF|PG|PH|PK|PL|PM|PN|PR|PS|PT|PW|PY|QA|RE|RO|RS|RU|RW|SA|SB|SC|SD|SE|SG|SH|SI|SJ|SK|SL|SM|SN|SO|SR|ST|SU|SV|SX|SY|SZ|TC|TD|TF|TG|TH|TJ|TK|TL|TM|TN|TO|TP|TR|TT|TV|TW|TZ|UA|UG|UK|US|UY|UZ|VA|VC|VE|VG|VI|VN|VU|WF|WS|YE|YT|ZA|ZM|ZW)\b"
@@ -58,6 +78,22 @@ def tag_initial():
     for line in lines:
         for m in re.finditer(reMD5, line, re.IGNORECASE):
             text.tag_add('md5',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
+        linenumber += 1
+
+    #sha1
+    text.tag_configure('sha1', background='#A8FE6A')
+    linenumber = 1
+    for line in lines:
+        for m in re.finditer(reSHA1, line, re.IGNORECASE):
+            text.tag_add('sha1',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
+        linenumber += 1
+
+    #sha256
+    text.tag_configure('sha256', background='#c06afe')
+    linenumber = 1
+    for line in lines:
+        for m in re.finditer(reSHA256, line, re.IGNORECASE):
+            text.tag_add('sha256',str(linenumber) + '.' + str(m.start()), str(linenumber) + '.' + str(m.end()))
         linenumber += 1
 
     #ipv4
@@ -124,7 +160,7 @@ def askopen(filename = ''):
         with open(filename, 'rb') as f: #read as binary
             doc = f.read()
             doc = doc.decode('utf_8', 'ignore') #drop any non-ascii bytes
-            
+
             #if a carriage return is orphaned, replace it with a new line
             doc = list(doc)
             i = 0
@@ -135,7 +171,7 @@ def askopen(filename = ''):
                 i += 1
             if ord(doc[len(doc)-1]) == 13: #end
                 doc[len(doc)-1] = chr(10)
-            
+
             #drop carriage returns
             i = 0
             while (i < len(doc) - 1):
@@ -143,7 +179,7 @@ def askopen(filename = ''):
                     doc.pop(i)
                 else:
                     i += 1
-                    
+
             doc = ''.join(doc)
 
             text.delete('1.0',END)
@@ -154,7 +190,7 @@ def askopen(filename = ''):
 def clear_tag(holder = 0):
     if len(text.tag_ranges("sel")) != 0: #selection is not empty
         #untag all occurrences of selected string
-        key = text.get(text.tag_ranges("sel")[0], text.tag_ranges("sel")[1])        
+        key = text.get(text.tag_ranges("sel")[0], text.tag_ranges("sel")[1])
         lines = text.get(1.0, 'end').split('\n')
         linenumber = 1
 
@@ -166,7 +202,7 @@ def clear_tag(holder = 0):
 
         for t in tags: #necessary backup in case the regex fails to match
             text.tag_remove(t, text.tag_ranges("sel")[0], text.tag_ranges("sel")[1])
-        
+
 def tag_new(tag):
     if len(text.tag_ranges("sel")) != 0: #selection is not empty
         #remove any newline characters from the selection
@@ -199,7 +235,7 @@ def export_console():
                 mystart = h
             else:
                 mystop = h
-                if t == 'md5': #make all hashes uppercase
+                if t == 'md5' or t == 'sha1' or t == 'sha256': #make all hashes uppercase
                     if not text.get(mystart,mystop).upper() in indicators:
                         indicators.append(text.get(mystart,mystop).upper())
                 else:
@@ -224,7 +260,7 @@ def export_csv():
                     mystart = h
                 else:
                     mystop = h
-                    if t == 'md5': #make all hashes uppercase
+                    if t == 'md5' or t == 'sha1' or t == '256': #make all hashes uppercase
                         if not text.get(mystart,mystop).upper() in indicators:
                             indicators.append(text.get(mystart,mystop).upper())
                     else:
@@ -241,16 +277,20 @@ def export_csv():
         with open(filename, 'w') as f:
             f.write(output)
 
-
-def export_cybox():
+def export_stix():
     """
-    Export the tagged items in CybOX format.
-    This prompts the user to determine which file they want the CybOX saved
+    Export the tagged items in STIX format.
+    This prompts the user to determine which file they want the STIX saved
     out too.
     """
     filename = asksaveasfilename(title="Save As", filetypes=[("xml file",".xml"),("All files",".*")])
     observables_doc = None
-     
+
+    stix_package = STIXPackage()
+    stix_header = STIXHeader()
+    stix_header.description = filename
+    stix_package.stix_header = stix_header
+
     if filename:
         observables = []
         for t in tags:
@@ -263,14 +303,90 @@ def export_cybox():
                 else:
                     mystop = h
                     value = text.get(mystart,mystop).replace('[.]','.').replace('[@]','@')
-                    
+
+                    if t == 'md5':
+                        value = value.upper()
+                        if value not in indicators:
+                            observable = cybox_helper.create_file_hash_observable('', value)
+                            observables.append(observable)
+                            stix_package.add_observable(observable)
+                            indicators.append(value)
+
+                    elif t == 'ipv4':
+                        if not value in indicators:
+                            observable = cybox_helper.create_ipv4_observable(value)
+                            observables.append(observable)
+                            stix_package.add_observable(observable)
+                            indicators.append(value)
+
+                    elif t == 'domain':
+                        if not value in indicators:
+                            observable = cybox_helper.create_domain_name_observable(value)
+                            observables.append(observable)
+                            stix_package.add_observable(observable)
+                            indicators.append(value)
+
+                    elif t == 'url':
+                        if not value in indicators:
+                            observable = cybox_helper.create_url_observable(value)
+                            observables.append(observable)
+                            stix_package.add_observable(observable)
+                            indicators.append(value)
+
+                    elif t == 'email':
+                        if not value in indicators:
+                            observable = cybox_helper.create_email_address_observable(value)
+                            observables.append(observable)
+                            stix_package.add_observable(observable)
+                            indicators.append(value)
+
+                    mystart = 0
+                # end if
+            # end for
+        # end for
+
+        if len(observables) > 0:
+
+
+            if not filename.endswith('.xml'):
+                filename = "%s.xml" % filename #add .xml extension if missing
+            # end if
+
+            with open(filename, "wb") as f:
+                stix_xml = stix_package.to_xml()
+                f.write(stix_xml)
+
+        # end if
+
+def export_cybox():
+    """
+    Export the tagged items in CybOX format.
+    This prompts the user to determine which file they want the CybOX saved
+    out too.
+    """
+    filename = asksaveasfilename(title="Save As", filetypes=[("xml file",".xml"),("All files",".*")])
+    observables_doc = None
+
+    if filename:
+        observables = []
+        for t in tags:
+            indicators = []
+            myhighlights = text.tag_ranges(t)
+            mystart = 0
+            for h in myhighlights:
+                if mystart == 0:
+                    mystart = h
+                else:
+                    mystop = h
+                    value = text.get(mystart,mystop).replace('[.]','.').replace('[@]','@')
+
                     if t == 'md5':
                         value = value.upper()
                         if value not in indicators:
                             observable = cybox_helper.create_file_hash_observable('', value)
                             observables.append(observable)
                             indicators.append(value)
-                        
+
                     elif t == 'ipv4':
                         if not value in indicators:
                             observable = cybox_helper.create_ipv4_observable(value)
@@ -282,7 +398,7 @@ def export_cybox():
                             observable = cybox_helper.create_domain_name_observable(value)
                             observables.append(observable)
                             indicators.append(value)
-                    
+
                     elif t == 'url':
                         if not value in indicators:
                             observable = cybox_helper.create_url_observable(value)
@@ -299,28 +415,28 @@ def export_cybox():
                 # end if
             # end for
         # end for
-       
+
         if len(observables) > 0:
             NS = cybox.utils.Namespace("http://example.com/", "example")
             cybox.utils.set_id_namespace(NS)
             observables_doc = Observables(observables=observables)
- 
+
             if not filename.endswith('.xml'):
                 filename = "%s.xml" % filename #add .xml extension if missing
             # end if
-            
+
             with open(filename, "wb") as f:
                 cybox_xml = observables_doc.to_xml()
                 f.write(cybox_xml)
-            
+
         # end if
-            
+
 def export_openioc():
     '''
     Export the tagged items in OpenIOC 1.1 format.
     This prompts the user to determine which directory they want the IOC saved
     out too.
-    
+
     Email tags default to 'Email/From' address, implying that the email address
     found is the source address of an email.  This may not be accurate in all
     cases.
@@ -332,7 +448,7 @@ def export_openioc():
         content = uri
         IndicatorItem_node = ioc_api.make_IndicatorItem_node(condition, document, search, content_type, content, negate=negate, preserve_case=preserve_case, context_type = None)
         return IndicatorItem_node
-    
+
     def make_email_from(from_address, condition='contains', negate=False, preserve_case = False):
         document = 'Email'
         search = 'Email/From'
@@ -342,7 +458,7 @@ def export_openioc():
         return IndicatorItem_node
 
     output_directory = askdirectory(title = "Save IOC To")
-        
+
     if output_directory:
         indicator_nodes = []
         for tag in tags:
@@ -385,14 +501,14 @@ def export_openioc():
                     else:
                         print 'Unknown tag encountered [%s]' % str(tag)
                     mystart = 0
-    
+
     if len(indicator_nodes) > 0:
         ioc_obj = ioc_api.IOC(name = "IOC Extractor", description = "IOC generated with IOCExtractor")
         for indicator in indicator_nodes:
             ioc_obj.top_level_indicator.append(indicator)
         ioc_obj.write_ioc_to_file(output_directory)
     return True
-        
+
 root = Tk()
 root.title('IOCextractor')
 
@@ -404,11 +520,20 @@ bottomframe.pack(side=BOTTOM)
 openb = Button(topframe, text = "Open File", command = askopen)
 openb.pack(side=LEFT)
 
+retag = Button(topframe, text = "ReTag", command = tag_initial)
+retag.pack({"side": "left"})
+
 clear = Button(topframe, text = "Clear", command = clear_tag)
 clear.pack({"side": "left"})
 
 md5 = Button(topframe, text = "MD5", command = lambda: tag_new('md5'), bg = "#FE6AA8")
 md5.pack({"side": "left"})
+
+sha1 = Button(topframe, text = "SHA1", command = lambda: tag_new('sha1'), bg = "#a8fe6a")
+sha1.pack({"side": "left"})
+
+sha256 = Button(topframe, text = "SHA256", command = lambda: tag_new('sha256'), bg = "#c06afe")
+sha256.pack({"side": "left"})
 
 ipv4 = Button(topframe, text = "IPV4", command = lambda: tag_new('ipv4'), bg = "#6CB23E")
 ipv4.pack({"side": "left"})
@@ -427,6 +552,10 @@ export_console.pack({"side": "left"})
 
 export_csv = Button(topframe, text = "Export CSV", command = export_csv)
 export_csv.pack({"side": "left"})
+
+if python_stix_available:
+    export_stix = Button(topframe, text = "Export STIX", command = export_stix)
+    export_stix.pack({"side": "left"})
 
 if python_cybox_available:
     export_cybox = Button(topframe, text = "Export CybOX", command = export_cybox)
